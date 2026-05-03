@@ -20,26 +20,19 @@ using BiophysicalAllometry
 using BiophysicalParameters
 using DataFrames
 using HeatExchange
-using RData
+using RData          # activates TraitDataSources RData extension
 using Statistics
 using Unitful
-
-const RESPIRATION_DB = joinpath(
-    homedir(), "Dropbox", "Current Research Projects",
-    "trait_database", "heat_budget_databases", "respirationDB",
-)
 
 celsius(t) = round(ustrip(uconvert(u"°C", t)); digits=2)
 watts(w)   = round(ustrip(uconvert(u"W",  w)); digits=5)
 
-# ── Load traits.build database from .rds ──────────────────────────────────────
-# The .rds contains the full traits.build object: traits (long format), contexts,
-# methods, locations, definitions. Context variables (Ta, MR_estimate_type) are
-# stored separately and must be joined onto the traits table before use.
+# ── Load traits.build database ────────────────────────────────────────────────
+# ENV["HEATBUDGETDB_PATH"] must point to the heat budget databases root directory.
+# HeatBudgetDB{RespirationDomain} resolves to:
+#   $HEATBUDGETDB_PATH/respirationDB/export/data/current_DB/Physiology_respirometry.rds
 
-raw_db     = RData.load(joinpath(RESPIRATION_DB, "export", "data", "current_DB",
-                                  "Physiology_respirometry.rds"))
-traits_long = join_contexts(DataFrame(raw_db["traits"]), DataFrame(raw_db["contexts"]))
+traits_long = gettraits(HeatBudgetDB{RespirationDomain}())
 
 println("Physiology_respirometry database: $(nrow(traits_long)) trait rows")
 println("Taxa: $(unique(traits_long.taxon_name))")

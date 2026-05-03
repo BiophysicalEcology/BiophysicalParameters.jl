@@ -11,21 +11,14 @@
 
 using BiophysicalParameters
 using DataFrames
-using RData
+using RData          # activates TraitDataSources RData extension
 using Statistics
 using Unitful
 
-const RADIATION_DB = joinpath(
-    homedir(), "Dropbox", "Current Research Projects",
-    "trait_database", "heat_budget_databases", "radiationDB",
-)
-
 # ── 1. Build mean spectral reflectance curve for Pogona vitticeps ─────────────
-raw_db      = RData.load(joinpath(RADIATION_DB, "export", "data", "current_DB",
-                                   "Morphology_radiative_properties.rds"))
-traits_long = join_contexts(DataFrame(raw_db["traits"]), DataFrame(raw_db["contexts"]))
+# ENV["HEATBUDGETDB_PATH"] must point to the heat budget databases root directory.
 
-pogona_long = filter(r -> r.taxon_name == "Pogona vitticeps", traits_long)
+pogona_long = gettraits(HeatBudgetDB{RadiationDomain}(); taxon="Pogona vitticeps")
 pogona_wide = pivot_traits_build_wide(
     pogona_long,
     [:taxon_name, :observation_id, :repeat_measurements_id, :entity_type,

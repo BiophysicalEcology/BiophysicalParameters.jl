@@ -5,25 +5,22 @@
 # pre-computed values in the radiationDB parameters export, and builds a
 # RadiationParameters struct with provenance tracking.
 #
-# Data source: traits.build .rds database loaded via RData.jl.
-# join_contexts merges the method context (region_of_measurement) onto the traits
-# table. pivot_traits_build_wide pivots to one row per wavelength measurement.
+# Data source: traits.build .rds database via TraitDataSources.jl.
+# gettraits loads the database and joins context variables automatically.
+# pivot_traits_build_wide pivots to one row per wavelength measurement.
 
 using BiophysicalParameters
 using CSV
 using DataFrames
-using RData
+using RData          # activates TraitDataSources RData extension
 using Statistics
 
-const RADIATION_DB = joinpath(
-    homedir(), "Dropbox", "Current Research Projects",
-    "trait_database", "heat_budget_databases", "radiationDB",
-)
+# ── 1. Load traits.build database ────────────────────────────────────────────
+# ENV["HEATBUDGETDB_PATH"] must point to the heat budget databases root directory.
+# HeatBudgetDB{RadiationDomain} resolves to:
+#   $HEATBUDGETDB_PATH/radiationDB/export/data/current_DB/Morphology_radiative_properties.rds
 
-# ── 1. Load traits.build database from .rds ──────────────────────────────────
-raw_db      = RData.load(joinpath(RADIATION_DB, "export", "data", "current_DB",
-                                   "Morphology_radiative_properties.rds"))
-traits_long = join_contexts(DataFrame(raw_db["traits"]), DataFrame(raw_db["contexts"]))
+traits_long = gettraits(HeatBudgetDB{RadiationDomain}())
 
 println("Morphology_radiative_properties database: $(nrow(traits_long)) trait rows")
 println("Taxa: $(unique(traits_long.taxon_name))")
@@ -83,7 +80,7 @@ println()
 
 # ── 4. Compare with pre-computed parameters export ───────────────────────────
 precomputed = CSV.read(
-    joinpath(RADIATION_DB, "export", "data", "parameters",
+    joinpath(ENV["HEATBUDGETDB_PATH"], "radiationDB", "export", "data", "parameters",
              "tableB_lizard_morphology_radiative_properties_DB.csv"),
     DataFrame,
 )

@@ -6,6 +6,7 @@ using HeatExchange
 using Interpolations
 using SolarRadiation
 using Statistics
+using TraitDataSources
 using Unitful
 
 # ── Exports ───────────────────────────────────────────────────────────────────
@@ -52,7 +53,14 @@ export ENDOTHERM_DEFAULT_CORE_TEMPERATURES
 export solar_weighted_absorptivity
 
 # traits.build integration
+# join_contexts lives in TraitDataSources and is re-exported here for backwards compatibility
 export join_contexts, pivot_traits_build_wide
+
+# TraitDataSources re-exports — `using BiophysicalParameters` is sufficient for TraitDataSources API
+export TraitDataSource, TraitDomain
+export GeometryDomain, InsulationDomain, RadiationDomain, RespirationDomain
+export HeatBudgetDB, TraitsBuildFile
+export gettraits, traitnames, traitpath
 
 # ── Includes ──────────────────────────────────────────────────────────────────
 
