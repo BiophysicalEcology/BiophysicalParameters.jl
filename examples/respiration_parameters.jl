@@ -1,6 +1,10 @@
 # Respiration and metabolism parameters from respirometry data
 #
-# Demonstrates respiration_parameters and metabolism_parameters for two species:
+# Demonstrates loading a traits.build database (.rds) via RData.jl, joining
+# context variables (Ta, MR_estimate_type), pivoting to wide format, and feeding
+# the result into respiration_parameters / metabolism_parameters.
+#
+# Two species:
 #
 # 1. Pogona vitticeps (Wild et al. 2023) — individual-level open-circuit respirometry
 #    at a single temperature (33°C). Provides RQ from CO₂/O₂ ratios and metabolic
@@ -13,9 +17,9 @@
 #    Q10 is regressed against T_b (body temperature drives metabolic rate in endotherms).
 
 using BiophysicalParameters
-using CSV
 using DataFrames
 using HeatExchange
+using RData
 using Statistics
 using Unitful
 
@@ -27,26 +31,47 @@ const RESPIRATION_DB = joinpath(
 celsius(t) = round(ustrip(uconvert(u"°C", t)); digits=2)
 watts(w)   = round(ustrip(uconvert(u"W",  w)); digits=5)
 
-# ── 1. Pogona vitticeps — open-circuit respirometry (Wild et al. 2023) ────────
+# ── Load traits.build database from .rds ──────────────────────────────────────
+# The .rds contains the full traits.build object: traits (long format), contexts,
+# methods, locations, definitions. Context variables (Ta, MR_estimate_type) are
+# stored separately and must be joined onto the traits table before use.
 
-pogona_raw = CSV.read(
-    joinpath(RESPIRATION_DB, "data", "Wild_etal_2023", "data.csv"),
-    DataFrame,
+raw_db     = RData.load(joinpath(RESPIRATION_DB, "export", "data", "current_DB",
+                                  "Physiology_respirometry.rds"))
+traits_long = join_contexts(DataFrame(raw_db["traits"]), DataFrame(raw_db["contexts"]))
+
+println("Physiology_respirometry database: $(nrow(traits_long)) trait rows")
+println("Taxa: $(unique(traits_long.taxon_name))")
+println("Traits: $(unique(traits_long.trait_name))")
+println()
+
+# ── 1. Pogona vitticeps — open-circuit respirometry (Wild et al. 2023) ────────
+#
+# Individual-level data: id columns are taxon_name, entity_type, observation_id,
+# repeat_measurements_id, Ta. Mirrors the R Analysis.R pivot logic.
+
+pogona_long = filter(r -> r.taxon_name == "Pogona vitticeps", traits_long)
+pogona_raw = pivot_traits_build_wide(
+    pogona_long,
+    [:taxon_name, :entity_type, :observation_id, :repeat_measurements_id, :Ta],
 )
-println("Wild et al. 2023: $(nrow(pogona_raw)) rows, $(length(unique(pogona_raw.Individual_ID))) individuals")
+
+println("Pogona vitticeps: $(nrow(pogona_raw)) rows, $(length(unique(pogona_raw.observation_id))) individuals")
 println("Columns: $(names(pogona_raw))")
 println("Data format: $(respiration_data_format(pogona_raw))")
 println()
 
 # Per-individual RQ: CO₂ produced / O₂ consumed
-pogona_raw.respiratory_quotient = pogona_raw.change_CO2 ./ pogona_raw.change_O2
+co2_col = findfirst(c -> occursin("change_co2", lowercase(string(c))), names(pogona_raw))
+o2_col  = findfirst(c -> occursin("change_o2",  lowercase(string(c))), names(pogona_raw))
+pogona_raw[!, :respiratory_quotient] = pogona_raw[!, names(pogona_raw)[co2_col]] ./
+                                        pogona_raw[!, names(pogona_raw)[o2_col]]
 println("── Per-individual respiratory quotients ─────────────────────────────")
-println("  Mean RQ:   $(round(mean(pogona_raw.respiratory_quotient); digits=3))")
-println("  Median RQ: $(round(median(pogona_raw.respiratory_quotient); digits=3))")
-println("  SD RQ:     $(round(std(pogona_raw.respiratory_quotient); digits=3))")
+println("  Mean RQ:   $(round(mean(skipmissing(pogona_raw.respiratory_quotient)); digits=3))")
+println("  Median RQ: $(round(median(skipmissing(pogona_raw.respiratory_quotient)); digits=3))")
+println("  SD RQ:     $(round(std(skipmissing(pogona_raw.respiratory_quotient)); digits=3))")
 println()
 
-# Respiration parameters — RQ measured, oxygen_extraction_efficiency defaults
 pogona_resp_params, pogona_resp_prov = respiration_parameters(
     "Pogona vitticeps",
     pogona_raw,
@@ -58,16 +83,13 @@ println()
 data_gaps(pogona_resp_prov; name="Pogona vitticeps — respiration")
 println()
 
-# Metabolism parameters — single temperature (33°C), Q10 not fittable.
-# Ectotherm: no thermal_group, ambient Ta used as core_temperature.
-# STP correction applied using bp column (hPa) and Ta = 33°C → factor ≈ 0.89.
 pogona_metab_params, pogona_metab_prov = metabolism_parameters(
     "Pogona vitticeps",
     pogona_raw;
     respiratory_quotient = pogona_resp_params.respiratory_quotient,
 )
-pogona_core_tc  = celsius(pogona_metab_params.core_temperature)
-pogona_heat_w   = watts(pogona_metab_params.metabolic_heat_flow)
+pogona_core_tc = celsius(pogona_metab_params.core_temperature)
+pogona_heat_w  = watts(pogona_metab_params.metabolic_heat_flow)
 println("── MetabolismParameters — Pogona vitticeps ───────────────────────────")
 println("  core_temperature:    $pogona_core_tc °C  (= Ta, ectotherm)")
 println("  metabolic_heat_flow: $pogona_heat_w W  (STP-corrected)")
@@ -77,11 +99,17 @@ data_gaps(pogona_metab_prov; name="Pogona vitticeps — metabolism")
 println()
 
 # ── 2. Myrmecobius fasciatus — metabolic rate vs temperature (Cooper & Withers 2002) ──
+#
+# Population-level data: id columns are taxon_name, replicates, Ta, MR_estimate_type.
+# T_b (body temperature) is a trait in the database; after pivoting it appears as the
+# column temperature_body_resp(Cel), which the builders detect automatically.
 
-numbat_raw = CSV.read(
-    joinpath(RESPIRATION_DB, "data", "Cooper_Withers_2002", "data.csv"),
-    DataFrame,
+numbat_long = filter(r -> r.taxon_name == "Myrmecobius fasciatus", traits_long)
+numbat_raw = pivot_traits_build_wide(
+    numbat_long,
+    [:taxon_name, :replicates, :Ta, :MR_estimate_type],
 )
+
 println("Cooper & Withers 2002: $(nrow(numbat_raw)) rows")
 println("Columns: $(names(numbat_raw))")
 println("Data format: $(respiration_data_format(numbat_raw))")
@@ -89,20 +117,11 @@ println()
 println(numbat_raw)
 println()
 
-# Respiration parameters — no CO₂ data in Cooper dataset, RQ defaults
-numbat_resp_params, numbat_resp_prov = respiration_parameters(
-    "Myrmecobius fasciatus",
-    numbat_raw,
-)
+numbat_resp_params, _ = respiration_parameters("Myrmecobius fasciatus", numbat_raw)
 println("── RespirationParameters — Myrmecobius fasciatus ─────────────────────")
 println("  respiratory_quotient: $(numbat_resp_params.respiratory_quotient)  (GlobalDefault — no CO₂ data)")
 println()
 
-# Metabolism parameters — minimum metabolic rate (BMR), T_b from data.csv,
-# Q10 regressed against T_b. thermal_group = :marsupial documents the taxon class;
-# T_b is already in the data so the group default is not needed for core_temperature,
-# but it is recorded in provenance and would be used if T_b were absent.
-# STP correction uses Ta (chamber gas temperature), not T_b.
 numbat_metab_params, numbat_metab_prov = metabolism_parameters(
     "Myrmecobius fasciatus",
     numbat_raw;
@@ -119,14 +138,6 @@ println()
 data_gaps(numbat_metab_prov; name="Myrmecobius fasciatus — metabolism (min)")
 println()
 
-# Note: the Q10 is fitted against T_b. Since T_b is nearly constant (~33.7–34.1°C)
-# across Ta = 15–30°C and only rises at Ta = 32.5°C, the regression captures the
-# metabolic increase near the upper thermal limit rather than a classic Q10 relationship.
-# For endotherms, metabolic rate is primarily driven by the thermal gradient (T_b - T_a)
-# for heat loss, not by T_b itself changing — this is a structural limitation of using
-# Q10 as a parameter for homeotherms.
-
-# For comparison: estimate_type = "mean"
 numbat_metab_mean, _ = metabolism_parameters(
     "Myrmecobius fasciatus",
     numbat_raw;
@@ -159,3 +170,28 @@ kleiber_heat_w = watts(pogona_metab_kleiber.metabolic_heat_flow)
 println("── Pogona vitticeps: O₂ conversion model comparison ─────────────────")
 println("  Typical()    (20.1 J/mL):   $pogona_heat_w W")
 println("  Kleiber1961  (RQ-dependent): $kleiber_heat_w W  (RQ = $(round(pogona_resp_params.respiratory_quotient; digits=3)))")
+println()
+
+# ── 5. Measured vs AndrewsPough2 allometric prediction ───────────────────────
+mass_col_idx           = findfirst(c -> occursin("mass_in", lowercase(string(c))), names(pogona_raw))
+mean_pogona_mass_grams = mean(skipmissing(pogona_raw[!, names(pogona_raw)[mass_col_idx]]))
+pogona_mass            = mean_pogona_mass_grams * u"g"
+
+andrews_pough_standard_w = watts(HeatExchange.metabolic_rate(
+    HeatExchange.AndrewsPough2(metabolic_state = 0.0),
+    pogona_mass,
+    pogona_metab_params.core_temperature,
+))
+andrews_pough_resting_w = watts(HeatExchange.metabolic_rate(
+    HeatExchange.AndrewsPough2(metabolic_state = 1.0),
+    pogona_mass,
+    pogona_metab_params.core_temperature,
+))
+ratio_to_standard = round(pogona_heat_w / andrews_pough_standard_w; digits=2)
+println("── Pogona vitticeps: measured vs AndrewsPough2 allometric prediction ─")
+println("  Mean body mass:              $(round(mean_pogona_mass_grams; digits=1)) g")
+println("  Core temperature:            $pogona_core_tc °C")
+println("  Measured (respirometry):     $pogona_heat_w W  (STP-corrected, Typical)")
+println("  AndrewsPough2 standard:      $andrews_pough_standard_w W  (metabolic_state = 0)")
+println("  AndrewsPough2 resting:       $andrews_pough_resting_w W  (metabolic_state = 1)")
+println("  Measured / standard:         $ratio_to_standard")

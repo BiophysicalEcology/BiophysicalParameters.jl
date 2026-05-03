@@ -51,11 +51,15 @@ export ENDOTHERM_DEFAULT_CORE_TEMPERATURES
 # Solar absorptivity utility (public for testing/reuse)
 export solar_weighted_absorptivity
 
+# traits.build integration
+export join_contexts, pivot_traits_build_wide
+
 # ── Includes ──────────────────────────────────────────────────────────────────
 
 include("provenance.jl")
 include("model_traits.jl")
 include("radiation.jl")
 include("respiration.jl")
+include("traits_build.jl")
 
 end
