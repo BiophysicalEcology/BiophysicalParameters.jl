@@ -10,8 +10,8 @@
 # increases with elevation and proximity to the equator.
 
 using BiophysicalParameters
-using CSV
 using DataFrames
+using RData
 using Statistics
 using Unitful
 
@@ -21,9 +21,21 @@ const RADIATION_DB = joinpath(
 )
 
 # ── 1. Build mean spectral reflectance curve for Pogona vitticeps ─────────────
-spectral_data = CSV.read(
-    joinpath(RADIATION_DB, "data", "Smith_etal_2016", "data.csv"),
-    DataFrame,
+raw_db      = RData.load(joinpath(RADIATION_DB, "export", "data", "current_DB",
+                                   "Morphology_radiative_properties.rds"))
+traits_long = join_contexts(DataFrame(raw_db["traits"]), DataFrame(raw_db["contexts"]))
+
+pogona_long = filter(r -> r.taxon_name == "Pogona vitticeps", traits_long)
+pogona_wide = pivot_traits_build_wide(
+    pogona_long,
+    [:taxon_name, :observation_id, :repeat_measurements_id, :entity_type,
+     :region_of_measurement],
+)
+rename!(pogona_wide,
+    "wave_length(nm)"              => "wave_length_nm",
+    "temperature_body(Cel)"        => "temp_C",
+    "reflectance({dimensionless})" => "reflectance",
+    "observation_id"               => "Individual_ID",
 )
 
 # Average reflectance across all individuals and temperatures, separately for
@@ -33,10 +45,10 @@ function mean_spectral_reflectance(df, region)
     combine(groupby(subset, :wave_length_nm), :reflectance => mean => :reflectance)
 end
 
-dorsal_spectrum  = mean_spectral_reflectance(spectral_data, "dorsal")
-ventral_spectrum = mean_spectral_reflectance(spectral_data, "ventral")
+dorsal_spectrum  = mean_spectral_reflectance(pogona_wide, "dorsal")
+ventral_spectrum = mean_spectral_reflectance(pogona_wide, "ventral")
 
-println("Mean spectral curves built from $(length(unique(spectral_data.Individual_ID))) individuals")
+println("Mean spectral curves built from $(length(unique(pogona_wide.Individual_ID))) individuals")
 println("Wavelength range: $(minimum(dorsal_spectrum.wave_length_nm))–$(maximum(dorsal_spectrum.wave_length_nm)) nm")
 println()
 
