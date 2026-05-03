@@ -16,6 +16,7 @@
 #    constant at ~33.7–34.1°C across 15–30°C ambient, rising to ~35.7°C at 32.5°C.
 #    Q10 is regressed against T_b (body temperature drives metabolic rate in endotherms).
 
+using BiophysicalAllometry
 using BiophysicalParameters
 using DataFrames
 using HeatExchange
@@ -101,7 +102,7 @@ println()
 # ── 2. Myrmecobius fasciatus — metabolic rate vs temperature (Cooper & Withers 2002) ──
 #
 # Population-level data: id columns are taxon_name, replicates, Ta, MR_estimate_type.
-# T_b (body temperature) is a trait in the database; after pivoting it appears as the
+# Tb (body temperature) is a trait in the database; after pivoting it appears as the
 # column temperature_body_resp(Cel), which the builders detect automatically.
 
 numbat_long = filter(r -> r.taxon_name == "Myrmecobius fasciatus", traits_long)
@@ -160,32 +161,29 @@ end
 println()
 
 # ── 4. Effect of O₂ conversion model on metabolic heat flow ──────────────────
-pogona_metab_kleiber, _ = metabolism_parameters(
+pogona_metab_kleiber1961, _ = metabolism_parameters(
     "Pogona vitticeps",
     pogona_raw;
     respiratory_quotient     = pogona_resp_params.respiratory_quotient,
     oxygen_joules_conversion = HeatExchange.Kleiber1961(),
 )
-kleiber_heat_w = watts(pogona_metab_kleiber.metabolic_heat_flow)
+kleiber1961_heat_w = watts(pogona_metab_kleiber1961.metabolic_heat_flow)
 println("── Pogona vitticeps: O₂ conversion model comparison ─────────────────")
 println("  Typical()    (20.1 J/mL):   $pogona_heat_w W")
-println("  Kleiber1961  (RQ-dependent): $kleiber_heat_w W  (RQ = $(round(pogona_resp_params.respiratory_quotient; digits=3)))")
+println("  Kleiber1961  (RQ-dependent): $kleiber1961_heat_w W  (RQ = $(round(pogona_resp_params.respiratory_quotient; digits=3)))")
 println()
 
-# ── 5. Measured vs AndrewsPough2 allometric prediction ───────────────────────
+# ── 5. Measured vs AndrewsPough2 allometric prediction — Pogona vitticeps ────
 mass_col_idx           = findfirst(c -> occursin("mass_in", lowercase(string(c))), names(pogona_raw))
 mean_pogona_mass_grams = mean(skipmissing(pogona_raw[!, names(pogona_raw)[mass_col_idx]]))
 pogona_mass            = mean_pogona_mass_grams * u"g"
 
-andrews_pough_standard_w = watts(HeatExchange.metabolic_rate(
-    HeatExchange.AndrewsPough2(metabolic_state = 0.0),
-    pogona_mass,
-    pogona_metab_params.core_temperature,
+andrews_pough_standard_w = watts(allometric(
+    StandardMetabolicRate(), Squamate(), pogona_mass, pogona_metab_params.core_temperature,
 ))
-andrews_pough_resting_w = watts(HeatExchange.metabolic_rate(
-    HeatExchange.AndrewsPough2(metabolic_state = 1.0),
-    pogona_mass,
-    pogona_metab_params.core_temperature,
+andrews_pough_resting_w = watts(allometric(
+    StandardMetabolicRate(), Squamate(), pogona_mass, pogona_metab_params.core_temperature;
+    metabolic_state = 1.0,
 ))
 ratio_to_standard = round(pogona_heat_w / andrews_pough_standard_w; digits=2)
 println("── Pogona vitticeps: measured vs AndrewsPough2 allometric prediction ─")
@@ -195,3 +193,23 @@ println("  Measured (respirometry):     $pogona_heat_w W  (STP-corrected, Typica
 println("  AndrewsPough2 standard:      $andrews_pough_standard_w W  (metabolic_state = 0)")
 println("  AndrewsPough2 resting:       $andrews_pough_resting_w W  (metabolic_state = 1)")
 println("  Measured / standard:         $ratio_to_standard")
+println()
+
+# ── 6. Measured vs marsupial BMR prediction — Myrmecobius fasciatus ──────────
+mass_col_numbat_idx = findfirst(c -> occursin("mass_in", lowercase(string(c))), names(numbat_raw))
+mean_numbat_mass_g  = first(skipmissing(numbat_raw[!, names(numbat_raw)[mass_col_numbat_idx]]))
+numbat_mass         = mean_numbat_mass_g * u"g"
+
+marsupial_bmr_w  = watts(allometric(BasalMetabolicRate(), Marsupial(), numbat_mass))
+eutherian_bmr_w  = watts(allometric(BasalMetabolicRate(), EutherianMammal(), numbat_mass))
+ratio_numbat_min  = round(numbat_heat_w       / marsupial_bmr_w; digits=2)
+ratio_numbat_mean = round(numbat_heat_mean_w  / marsupial_bmr_w; digits=2)
+println("── Myrmecobius fasciatus: measured vs allometric BMR prediction ──────")
+println("  Mean body mass:                    $(round(mean_numbat_mass_g; digits=1)) g")
+println("  Core temperature:                  $numbat_core_tc °C  (mean T_b)")
+println("  Marsupial BMR (Dawson & Hulbert):   $marsupial_bmr_w W")
+println("  Eutherian BMR (Kleiber / Schmidt-Nielsen): $eutherian_bmr_w W")
+println("  Measured min  (respirometry):      $numbat_heat_w W")
+println("  Measured mean (respirometry):      $numbat_heat_mean_w W")
+println("  Measured min  / marsupial BMR:     $ratio_numbat_min")
+println("  Measured mean / marsupial BMR:     $ratio_numbat_mean")

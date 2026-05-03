@@ -70,11 +70,15 @@ end
 # core_temperature and Q10 fitting. For endotherms, add a T_b column to the
 # DataFrame or pass reference_temperature directly.
 function _body_temperature_column(df)
-    # Check known symbol names first, then fall back to pattern matching for export-format
-    # column names like "temperature_body_resp(Cel)"
     candidate = _detect_column(df, [:T_b, :Tb, :body_temperature, :body_temperature_celsius], nothing)
     candidate !== nothing && return candidate
-    index = findfirst(c -> occursin("temperature_body", lowercase(string(c))), names(df))
+    # traits.build pivot wraps unit in parentheses: "Tb(Cel)", "temperature_body_resp(Cel)"
+    # Strip the "(unit)" suffix and re-match against known base names.
+    known = Set(["t_b", "tb", "body_temperature", "body_temperature_celsius"])
+    index = findfirst(names(df)) do c
+        base = lowercase(replace(string(c), r"\([^)]*\)$" => ""))
+        base in known || occursin("temperature_body", base)
+    end
     index === nothing ? nothing : Symbol(names(df)[index])
 end
 
