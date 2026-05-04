@@ -1,9 +1,13 @@
 module BiophysicalParameters
 
+using Arrow
 using CSV
 using DataFrames
+using Dates
+using Distributions
 using HeatExchange
 using Interpolations
+using JSON3
 using SolarRadiation
 using Statistics
 using TraitDataSources
@@ -59,8 +63,13 @@ export join_contexts, pivot_traits_build_wide
 # TraitDataSources re-exports — `using BiophysicalParameters` is sufficient for TraitDataSources API
 export TraitDataSource, TraitDomain
 export GeometryDomain, InsulationDomain, RadiationDomain, RespirationDomain
-export HeatBudgetDB, TraitsBuildFile
+export HeatBudgetDB, TraitsBuildFile, CompiledParametersDB
 export gettraits, traitnames, traitpath
+
+# Compiled parameters database
+export ParameterSummary, ParameterRecord
+export compile_parameters_database, parameters_table, load_parameters
+export distribution
 
 # ── Includes ──────────────────────────────────────────────────────────────────
 
@@ -69,5 +78,6 @@ include("model_traits.jl")
 include("radiation.jl")
 include("respiration.jl")
 include("traits_build.jl")
+include("compiled_db.jl")
 
 end
